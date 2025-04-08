@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Simple Trackmania-esque Game</title>
+  <title>Oval Track with Fan Effect Game</title>
   <style>
-    /* Basic reset & body background */
     body {
       margin: 0;
       background: #333;
@@ -14,9 +13,8 @@
       align-items: center;
       height: 100vh;
     }
-    /* Center the canvas */
     canvas {
-      background: #556B2F; /* Dark olive green background to simulate grass */
+      background: #556B2F; /* Simulates grass */
       display: block;
     }
   </style>
@@ -30,22 +28,21 @@
 // Game Setup Variables
 // =====================
 
-// Canvas and Context
+// Get canvas and context
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// Track settings (a donut-shaped track)
-// Center of the track
+// Oval Track Settings (elliptical track center and radii)
+// We'll define an outer ellipse and an inner ellipse to form the track.
 const trackCenter = { x: canvas.width / 2, y: canvas.height / 2 };
-// Radii for the outer and inner boundaries of the track
-const outerRadius = 250;
-const innerRadius = 120;
+const outerRadii = { x: 300, y: 200 }; // Outer ellipse radii
+const innerRadii = { x: 180, y: 120 }; // Inner ellipse radii
 
-// Car object
+// Car object settings
 const car = {
   x: trackCenter.x,
-  y: trackCenter.y - 180,  // Start near the outer edge of the track
-  angle: Math.PI / 2,       // Facing downward initially
+  y: trackCenter.y - 150,  // Starting position near outer edge
+  angle: Math.PI / 2,       // Facing downward
   speed: 0,
   maxSpeed: 5,
   accel: 0.2,
@@ -55,6 +52,9 @@ const car = {
   width: 20,
   height: 10
 };
+
+// Wind (Fan) effect: added force that pushes the car from left to right
+const windForce = 0.05;
 
 // Key state tracking
 const keys = {};
@@ -75,19 +75,19 @@ window.addEventListener('keyup', (e) => {
 // Game Functions
 // ============
 
-// Update car physics based on key inputs
+// Update car physics based on key inputs, applying wind each frame
 function updateCar() {
-  // Accelerate with up arrow
+  // Accelerate (up arrow)
   if (keys["ArrowUp"]) {
     car.speed += car.accel;
     if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
   }
-  // Brake / reverse with down arrow
+  // Brake/Reverse (down arrow)
   if (keys["ArrowDown"]) {
     car.speed -= car.accel;
     if (car.speed < -car.maxSpeed/2) car.speed = -car.maxSpeed/2;
   }
-  // Turn left or right (turning is more effective when moving)
+  // Turn left/right (turn is scaled by the current speed)
   if (keys["ArrowLeft"]) {
     car.angle -= car.turnSpeed * (car.speed / car.maxSpeed);
   }
@@ -95,11 +95,14 @@ function updateCar() {
     car.angle += car.turnSpeed * (car.speed / car.maxSpeed);
   }
   
-  // Update position with current speed and direction
+  // Update position using the car's angle and speed
   car.x += Math.cos(car.angle) * car.speed;
   car.y += Math.sin(car.angle) * car.speed;
   
-  // Apply friction to gradually slow down the car when not accelerating
+  // Apply the wind force that pushes the car to the right (increases x)
+  car.x += windForce;
+  
+  // Apply friction when not accelerating or braking
   if (!keys["ArrowUp"] && !keys["ArrowDown"]) {
     if (car.speed > 0) {
       car.speed -= car.friction;
@@ -110,61 +113,67 @@ function updateCar() {
     }
   }
   
-  // Check if car is off the track
-  const dx = car.x - trackCenter.x;
-  const dy = car.y - trackCenter.y;
-  const distance = Math.sqrt(dx * dx + dy * dy);
+  // Collision: Check if the car is off the oval track.
+  // Outer ellipse test:
+  let dxOuter = car.x - trackCenter.x;
+  let dyOuter = car.y - trackCenter.y;
+  let normOuter = (dxOuter * dxOuter) / (outerRadii.x * outerRadii.x) +
+                  (dyOuter * dyOuter) / (outerRadii.y * outerRadii.y);
   
-  // If car is either inside the inner radius or outside the outer radius, simulate collision
-  if (distance < innerRadius || distance > outerRadius) {
-    car.speed = 0; // Stop the car if it's off-track
+  // Inner ellipse test:
+  let dxInner = car.x - trackCenter.x;
+  let dyInner = car.y - trackCenter.y;
+  let normInner = (dxInner * dxInner) / (innerRadii.x * innerRadii.x) +
+                  (dyInner * dyInner) / (innerRadii.y * innerRadii.y);
+  
+  // If car is outside the outer boundary or inside the inner boundary, simulate collision.
+  if (normOuter > 1 || normInner < 1) {
+    car.speed = 0;
   }
 }
 
-// Function to draw the track: a ring-shaped road
+// Draw the oval track using outer and inner ellipses.
 function drawTrack() {
-  // Draw outer circle (road outer boundary)
   ctx.save();
   ctx.translate(trackCenter.x, trackCenter.y);
-  // Outer border (simulate road border)
+
+  // Draw the outer ellipse (the road)
   ctx.beginPath();
-  ctx.arc(0, 0, outerRadius, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, outerRadii.x, outerRadii.y, 0, 0, Math.PI * 2);
   ctx.fillStyle = "#888"; // Road color
   ctx.fill();
   
-  // Inner circle (grass inside the track)
+  // Draw the inner ellipse (grass inside the track)
   ctx.beginPath();
-  ctx.arc(0, 0, innerRadius, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, innerRadii.x, innerRadii.y, 0, 0, Math.PI * 2);
   ctx.fillStyle = "#556B2F"; // Grass same as background
   ctx.fill();
+
   ctx.restore();
 }
 
-// Function to draw the car as a simple rotated rectangle
+// Draw the car as a rotated rectangle
 function drawCar() {
   ctx.save();
   ctx.translate(car.x, car.y);
   ctx.rotate(car.angle);
-  // Draw the car body (a simple rectangle)
+  // Draw the car body
   ctx.fillStyle = "#f00"; // Red car
   ctx.fillRect(-car.width/2, -car.height/2, car.width, car.height);
   
-  // Draw a front indicator (a small rectangle or line)
+  // Draw a front indicator for the car (a small rectangle)
   ctx.fillStyle = "#fff";
   ctx.fillRect(car.width/4, -car.height/4, car.width/4, car.height/2);
   ctx.restore();
 }
 
-// Main game loop
+// Main Game Loop
 function gameLoop() {
-  // Clear canvas
+  // Clear canvas and redraw background (grass)
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-  // Redraw background (grass)
   ctx.fillStyle = "#556B2F";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   
-  // Update car physics and redraw elements
   updateCar();
   drawTrack();
   drawCar();
