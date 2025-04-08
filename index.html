@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Simplified Suzuka Circuit with Fan Effect</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Oval Track with Visible Fan and Wind Effect</title>
   <style>
     body {
       margin: 0;
@@ -14,30 +14,35 @@
       height: 100vh;
     }
     canvas {
-      background: #556B2F; /* "Grass" background */
+      background: #556B2F; /* Simulates grass */
       display: block;
     }
   </style>
 </head>
 <body>
-<canvas id="gameCanvas" width="900" height="600"></canvas>
+
+<canvas id="gameCanvas" width="800" height="600"></canvas>
 
 <script>
-// ---------------------------------------------------
-// Basic Setup
-// ---------------------------------------------------
+// =====================
+// Game Setup Variables
+// =====================
+
+// Get canvas and context
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// A rough “center” of our canvas — used for track positioning.
-const centerX = canvas.width / 2;
-const centerY = canvas.height / 2;
+// Oval Track Settings (elliptical track center and radii)
+// Outer ellipse and inner ellipse define the track boundaries
+const trackCenter = { x: canvas.width / 2, y: canvas.height / 2 };
+const outerRadii = { x: 300, y: 200 }; // Outer ellipse radii
+const innerRadii = { x: 180, y: 120 }; // Inner ellipse radii
 
-// Car object
+// Car object settings
 const car = {
-  x: centerX - 200, // Start to the left side
-  y: centerY,       // Center vertically
-  angle: 0,
+  x: trackCenter.x,
+  y: trackCenter.y - 150,  // Starting position near outer edge
+  angle: Math.PI / 2,       // Facing downward
   speed: 0,
   maxSpeed: 5,
   accel: 0.2,
@@ -48,110 +53,61 @@ const car = {
   height: 10
 };
 
-// "Wind" or "fan" effect that continuously pushes the car rightward
+// Wind (Fan) effect: constant force pushing the car to the right
 const windForce = 0.05;
 
-// A simple bounding radius to reset speed if car goes too far from center
-// (This is a placeholder “collision” check for going too far off the main area.)
-const boundingRadius = 400;
-
-// Key state tracking
-const keys = {};
-
-// ---------------------------------------------------
-// Approximate Suzuka Path Data
-// ---------------------------------------------------
-//
-// This is a very simplified, approximate version of Suzuka's figure-8 shape,
-// laid out using a sequence of path segments. These coordinates were hand-picked
-// to provide a rough impression of Suzuka. Real measurements would be far more exact.
-//
-// We'll draw a thick stroke to represent the track.
-//
-// You can tweak these points or add more Bezier curves to refine the shape.
-const suzukaPath = [
-  // We'll begin near the top-right and work around in a rough “figure-8” style
-  { x: 180, y: -180 },
-  { x: 130, y: -160 },
-  { x: 90,  y: -140 },
-  // S-curves
-  { x: 40,  y: -100 },
-  { x: 20,  y: -70 },
-  { x: 0,   y: -40 },
-  { x: -30, y: 0 },
-  { x: -50, y: 30 },
-  // Degner & Hairpin area
-  { x: -70, y: 60 },
-  { x: -90, y: 80 },
-  { x: -70, y: 100 },
-  { x: -30, y: 120 },
-  // Spoon curve region
-  { x: 10,  y: 140 },
-  { x: 60,  y: 140 },
-  { x: 90,  y: 120 },
-  // Overpass “figure-8” cross
-  { x: 120, y: 90 },
-  { x: 150, y: 70 },
-  { x: 180, y: 40 },
-  { x: 220, y: 10 },
-  { x: 250, y: -10 },
-  // Final chicane / approach to front straight
-  { x: 270, y: -40 },
-  { x: 220, y: -90 },
-  { x: 200, y: -130 },
-  { x: 180, y: -180 }
-];
-
-// Fan location
+// Fan position (placed in the upper left corner so it doesn't interfere with the track)
 const fan = {
   x: 60,
   y: 60,
   radius: 30
 };
 
-// ---------------------------------------------------
+// Key state tracking
+const keys = {};
+
+// ============
 // Event Listeners
-// ---------------------------------------------------
+// ============
+
 window.addEventListener('keydown', (e) => {
   keys[e.key] = true;
 });
+
 window.addEventListener('keyup', (e) => {
   keys[e.key] = false;
 });
 
-// ---------------------------------------------------
-// Drawing Helpers
-// ---------------------------------------------------
+// ============
+// Helper Functions
+// ============
 
-// Draw a simple arrow for “wind lines”
+// Helper function to draw an arrow from point (fromx, fromy) to (tox, toy)
 function drawArrow(fromx, fromy, tox, toy) {
-  const headlen = 10; // length of the arrow head
+  const headlen = 10; // length of head in pixels
   const dx = tox - fromx;
   const dy = toy - fromy;
   const angle = Math.atan2(dy, dx);
-  
   ctx.beginPath();
   ctx.moveTo(fromx, fromy);
   ctx.lineTo(tox, toy);
-  // left arrow head
   ctx.lineTo(
-    tox - headlen * Math.cos(angle - Math.PI / 6),
-    toy - headlen * Math.sin(angle - Math.PI / 6)
+    tox - headlen * Math.cos(angle - Math.PI/6),
+    toy - headlen * Math.sin(angle - Math.PI/6)
   );
   ctx.moveTo(tox, toy);
-  // right arrow head
   ctx.lineTo(
-    tox - headlen * Math.cos(angle + Math.PI / 6),
-    toy - headlen * Math.sin(angle + Math.PI / 6)
+    tox - headlen * Math.cos(angle + Math.PI/6),
+    toy - headlen * Math.sin(angle + Math.PI/6)
   );
   ctx.strokeStyle = "#00f";
   ctx.lineWidth = 2;
   ctx.stroke();
 }
 
-// Draw the fan
+// Function to draw a visible fan with blades and air arrows
 function drawFan() {
-  // Draw fan base (circle)
+  // Draw fan base (a circle)
   ctx.save();
   ctx.translate(fan.x, fan.y);
   ctx.beginPath();
@@ -161,11 +117,11 @@ function drawFan() {
   ctx.strokeStyle = "#888";
   ctx.lineWidth = 2;
   ctx.stroke();
-
-  // Fan blades (simple cross lines)
+  
+  // Draw fan blades (static lines for simplicity)
   ctx.strokeStyle = "#666";
   ctx.lineWidth = 4;
-  for (let i = 0; i < 4; i++) {
+  for(let i = 0; i < 4; i++) {
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.lineTo(fan.radius - 5, 0);
@@ -174,8 +130,9 @@ function drawFan() {
   }
   ctx.restore();
 
-  // Wind arrows going from left to right
+  // Draw wind arrows emanating from the fan
   for (let i = 0; i < 5; i++) {
+    // Compute starting and ending positions for each arrow.
     let startX = fan.x + fan.radius + 10 + i * 40;
     let startY = fan.y;
     let endX = startX + 30;
@@ -184,81 +141,38 @@ function drawFan() {
   }
 }
 
-// Draw a simplified Suzuka circuit
-function drawSuzukaTrack() {
-  ctx.save();
-  ctx.translate(centerX, centerY);
-  
-  ctx.beginPath();
-  // Move to first point
-  ctx.moveTo(suzukaPath[0].x, suzukaPath[0].y);
-  
-  // Connect the rest with lines
-  for (let i = 1; i < suzukaPath.length; i++) {
-    ctx.lineTo(suzukaPath[i].x, suzukaPath[i].y);
-  }
-  
-  // A thick stroke to represent the track
-  ctx.strokeStyle = "#888"; 
-  ctx.lineWidth = 20;
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  ctx.stroke();
-  
-  ctx.restore();
-}
+// ============
+// Game Functions
+// ============
 
-// Draw the car (simple rectangle)
-function drawCar() {
-  ctx.save();
-  ctx.translate(car.x, car.y);
-  ctx.rotate(car.angle);
-  
-  // Main body
-  ctx.fillStyle = "#f00"; // Red
-  ctx.fillRect(-car.width / 2, -car.height / 2, car.width, car.height);
-  
-  // Front indicator
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(car.width / 4, -car.height / 4, car.width / 4, car.height / 2);
-  
-  ctx.restore();
-}
-
-// ---------------------------------------------------
-// Game Logic
-// ---------------------------------------------------
+// Update car physics based on key inputs, applying wind each frame
 function updateCar() {
   // Accelerate (up arrow)
   if (keys["ArrowUp"]) {
     car.speed += car.accel;
-    if (car.speed > car.maxSpeed) {
-      car.speed = car.maxSpeed;
-    }
+    if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
   }
-  // Brake / reverse (down arrow)
+  // Brake/Reverse (down arrow)
   if (keys["ArrowDown"]) {
     car.speed -= car.accel;
-    if (car.speed < -car.maxSpeed / 2) {
-      car.speed = -car.maxSpeed / 2;
-    }
+    if (car.speed < -car.maxSpeed / 2) car.speed = -car.maxSpeed / 2;
   }
-  // Turn left / right
+  // Turn left/right (turn influenced by current speed)
   if (keys["ArrowLeft"]) {
     car.angle -= car.turnSpeed * (car.speed / car.maxSpeed);
   }
   if (keys["ArrowRight"]) {
     car.angle += car.turnSpeed * (car.speed / car.maxSpeed);
   }
-
-  // Update car position based on speed and angle
+  
+  // Update position using the car's angle and speed
   car.x += Math.cos(car.angle) * car.speed;
   car.y += Math.sin(car.angle) * car.speed;
   
-  // Apply fan / wind effect pushing the car to the right
+  // Apply the wind force that pushes the car to the right (increases x)
   car.x += windForce;
   
-  // Friction if no key is pressed for forward/back
+  // Apply friction when not accelerating or braking
   if (!keys["ArrowUp"] && !keys["ArrowDown"]) {
     if (car.speed > 0) {
       car.speed -= car.friction;
@@ -268,41 +182,81 @@ function updateCar() {
       if (car.speed > 0) car.speed = 0;
     }
   }
-
-  // Simple bounding check: if car is too far from center, reset speed
-  const dx = car.x - centerX;
-  const dy = car.y - centerY;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist > boundingRadius) {
+  
+  // Collision: Check if the car is off the oval track.
+  // Outer ellipse test:
+  let dxOuter = car.x - trackCenter.x;
+  let dyOuter = car.y - trackCenter.y;
+  let normOuter = (dxOuter * dxOuter) / (outerRadii.x * outerRadii.x) +
+                  (dyOuter * dyOuter) / (outerRadii.y * outerRadii.y);
+  
+  // Inner ellipse test:
+  let dxInner = car.x - trackCenter.x;
+  let dyInner = car.y - trackCenter.y;
+  let normInner = (dxInner * dxInner) / (innerRadii.x * innerRadii.x) +
+                  (dyInner * dyInner) / (innerRadii.y * innerRadii.y);
+  
+  // If the car is outside the outer boundary or inside the inner boundary, simulate collision.
+  if (normOuter > 1 || normInner < 1) {
     car.speed = 0;
   }
 }
 
-// ---------------------------------------------------
-// Main Game Loop
-// ---------------------------------------------------
-function gameLoop() {
-  // Clear canvas
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+// Draw the oval track using outer and inner ellipses.
+function drawTrack() {
+  ctx.save();
+  ctx.translate(trackCenter.x, trackCenter.y);
+  
+  // Draw the outer ellipse (the road)
+  ctx.beginPath();
+  ctx.ellipse(0, 0, outerRadii.x, outerRadii.y, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "#888"; // Road color
+  ctx.fill();
+  
+  // Draw the inner ellipse (grass inside the track)
+  ctx.beginPath();
+  ctx.ellipse(0, 0, innerRadii.x, innerRadii.y, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "#556B2F"; // Grass same as background
+  ctx.fill();
+  ctx.restore();
+}
 
-  // Fill background (grass)
+// Draw the car as a rotated rectangle
+function drawCar() {
+  ctx.save();
+  ctx.translate(car.x, car.y);
+  ctx.rotate(car.angle);
+  // Draw the car body
+  ctx.fillStyle = "#f00"; // Red car
+  ctx.fillRect(-car.width / 2, -car.height / 2, car.width, car.height);
+  
+  // Draw a front indicator for the car (small rectangle)
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(car.width / 4, -car.height / 4, car.width / 4, car.height / 2);
+  ctx.restore();
+}
+
+// Main game loop
+function gameLoop() {
+  // Clear canvas and redraw background (grass)
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#556B2F";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Draw fan (with wind arrows)
+  
+  // Draw visible fan (with air arrows)
   drawFan();
-
-  // Draw the Suzuka circuit
-  drawSuzukaTrack();
-
-  // Update car logic, then draw car
+  
+  // Update car physics and redraw track and car
   updateCar();
+  drawTrack();
   drawCar();
   
   requestAnimationFrame(gameLoop);
 }
 
+// Start the game loop
 requestAnimationFrame(gameLoop);
 </script>
+
 </body>
 </html>
