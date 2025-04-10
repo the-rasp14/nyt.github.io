@@ -19,30 +19,48 @@
       background-color: #7cba65; /* Grass color */
       border: 2px solid #000;
       border-radius: 8px; /* Rounded corners for canvas */
+      display: block; /* Prevent extra space below canvas */
     }
     .instructions {
       position: absolute;
       top: 10px;
       left: 10px;
       color: white;
-      background-color: rgba(0, 0, 0, 0.7); /* Slightly darker background */
+      background-color: rgba(0, 0, 0, 0.75); /* Slightly darker background */
       padding: 15px;
       border-radius: 8px; /* Rounded corners */
       box-shadow: 0 2px 5px rgba(0,0,0,0.3); /* Add shadow */
       max-width: 250px; /* Limit width */
+      z-index: 10; /* Ensure instructions are on top */
     }
     .instructions h3 {
         margin-top: 0;
+        margin-bottom: 10px;
         border-bottom: 1px solid #555;
         padding-bottom: 5px;
+    }
+     .instructions h4 {
+        margin-top: 15px;
+        margin-bottom: 5px;
+        border-bottom: 1px solid #555;
+        padding-bottom: 3px;
     }
     .instructions p {
         margin: 8px 0;
         line-height: 1.4;
     }
+    .instructions label {
+        margin-right: 10px;
+        display: inline-block; /* Align radio buttons */
+    }
+    .instructions input[type="radio"] {
+        margin-right: 3px;
+        vertical-align: middle; /* Align radio button with text */
+    }
     #status {
         font-weight: bold;
         min-height: 1.4em; /* Prevent layout shift when message appears */
+        margin-top: 10px;
     }
     /* Basic styling for fan */
     .fan-base { fill: #222; }
@@ -56,8 +74,17 @@
 </head>
 <body>
   <div class="instructions">
-    <h3>Racing Game Controls</h3>
+    <h3>Racing Game</h3>
+    <h4>Controls</h4>
     <p>↑ - Accelerate<br>↓ - Brake/Reverse<br>← - Turn Left<br>→ - Turn Right</p>
+    <h4>Max Speed</h4>
+    <div>
+        {/* Speed values and labels ARE correct here */}
+        <label><input type="radio" name="maxSpeed" value="2"> Slow (2)</label>
+        <label><input type="radio" name="maxSpeed" value="6" checked> Medium (6)</label>
+        <label><input type="radio" name="maxSpeed" value="10"> Fast (10)</label>
+    </div>
+    <h4>Stats</h4>
     <p id="speedometer">Speed: 0.0</p>
     <p id="cwLapCounter">CW Laps: 0</p>
     <p id="ccwLapCounter">CCW Laps: 0</p>
@@ -71,575 +98,423 @@
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
 
-    // Game elements
+    // --- Constants ---
+    const TARGET_FPS = 60;
+    const TARGET_DT = 1000 / TARGET_FPS; // Target delta time per frame
+
+    // --- Game Elements ---
     const track = {
       path: [],
-      width: 100, // Wider track
-      color: '#555555', // Darker track color
+      width: 80,
+      color: '#555555',
       borderColor: '#FFFFFF',
       borderWidth: 5
     };
 
     const car = {
-      x: 250,
-      y: 400,
-      width: 16,
-      height: 24,
-      angle: 0,
-      speed: 0,
+      x: 0, y: 0,
+      width: 16, height: 24,
+      angle: 0, speed: 0,
       acceleration: 0.15,
-      maxSpeed: 3,
-      friction: 0.97, // Friction on track
+      // --- FIX: Initialize maxSpeed to null, let init() set it from UI ---
+      maxSpeed: null,
+      grassMaxSpeedRatio: 0.2,
+      friction: 0.97,
       rotationSpeed: 0.02,
-      grassFriction: 0.7, // Very high friction on grass
-      grassMaxSpeed: 0.6,  // Very low max speed on grass
+      grassFriction: 0.7,
       color: 'red',
       onGrass: false
     };
 
     const fan = {
-      x: 30,
-      y: 300,
-      width: 40,
-      height: 40,
-      force: 0.05, // Force applied by the fan towards the right
-      active: true,
-      bladeAngle: 0,
-      bladeSpeed: 0.1 // Speed at which blades rotate
+      x: 0, y: 0,
+      width: 40, height: 40,
+      force: 0.05, active: true,
+      bladeAngle: 0, bladeSpeed: 0.1
     };
 
-    // Game state
+    // --- Game State ---
     const game = {
       checkpoints: [],
-      lastCheckpointHit: -1, // Index of the last checkpoint hit, -1 initially
-      clockwiseLaps: 0,
-      counterClockwiseLaps: 0,
-      cleanLaps: 0,
-      touchedGrass: false, // Flag if grass was touched during the current lap attempt
-      lapInProgress: false // Flag to indicate if a lap attempt is ongoing
+      lastCheckpointHit: -1,
+      clockwiseLaps: 0, counterClockwiseLaps: 0, cleanLaps: 0,
+      touchedGrass: false, lapInProgress: false,
+      initialized: false
     };
 
-    // Control states
-    const keys = {
-      ArrowUp: false,
-      ArrowDown: false,
-      ArrowLeft: false,
-      ArrowRight: false
-    };
+    // --- Control States ---
+    const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
 
-    // Game timing
+    // --- Game Timing ---
     let lastTime = 0;
     let gameRunning = true;
 
-    // UI Elements for easy access
+    // --- UI Elements ---
     const speedoElem = document.getElementById('speedometer');
     const cwLapElem = document.getElementById('cwLapCounter');
     const ccwLapElem = document.getElementById('ccwLapCounter');
     const cleanLapElem = document.getElementById('cleanLapCounter');
     const statusElem = document.getElementById('status');
+    const speedRadioButtons = document.querySelectorAll('input[name="maxSpeed"]');
 
-    // Generate a simple oval track
+    // --- Track Generation ---
     function generateTrack() {
-      const trackPoints = [];
-      const centerX = canvas.width / 2;
-      const centerY = canvas.height / 2;
-      const radiusX = canvas.width * 0.35; // Oval X radius
-      const radiusY = canvas.height * 0.25; // Oval Y radius
+        // console.log("Generating track..."); // Keep logs minimal unless debugging
+        const trackPoints = [];
+        const canvasCenterX = canvas.width / 2;
+        const canvasCenterY = canvas.height / 2;
+        const largeRadius = 200, smallRadius = 100, straightLength = 250;
+        const segmentsPerArc = 30, straightSegments = 10;
+        const largeCenterY = canvasCenterY + largeRadius / 3;
+        const smallCenterY = canvasCenterY - smallRadius / 1.5;
+        const centerOffsetX = straightLength / 2;
+        const largeCenterX = canvasCenterX - centerOffsetX;
+        const smallCenterX = canvasCenterX + centerOffsetX;
 
-      // Generate oval track points
-      const segments = 40; // Number of segments for the oval
-      for (let i = 0; i <= segments; i++) {
-        const angle = (i / segments) * Math.PI * 2;
-        const x = centerX + radiusX * Math.cos(angle);
-        const y = centerY + radiusY * Math.sin(angle);
-        trackPoints.push({ x, y });
-      }
-      // Remove the duplicate end point which is same as start point
-      trackPoints.pop();
-      return trackPoints;
+        try {
+            // 1. Large semi-circle
+            for (let i = segmentsPerArc; i >= 0; i--) {
+                const angle = (i / segmentsPerArc) * Math.PI;
+                trackPoints.push({ x: largeCenterX + largeRadius * Math.cos(angle), y: largeCenterY + largeRadius * Math.sin(angle) });
+            }
+            // 2. Top straight
+            const startStraight1 = trackPoints[trackPoints.length - 1];
+            const endStraight1 = { x: smallCenterX + smallRadius, y: smallCenterY };
+            if (!startStraight1) throw new Error("Failed at startStraight1");
+            for (let i = 1; i <= straightSegments; i++) {
+                const t = i / straightSegments;
+                trackPoints.push({ x: startStraight1.x + (endStraight1.x - startStraight1.x) * t, y: startStraight1.y + (endStraight1.y - startStraight1.y) * t });
+            }
+            // 3. Small semi-circle
+            for (let i = 1; i <= segmentsPerArc; i++) {
+                const angle = (i / segmentsPerArc) * Math.PI;
+                trackPoints.push({ x: smallCenterX + smallRadius * Math.cos(angle), y: smallCenterY - smallRadius * Math.sin(angle) });
+            }
+            // 4. Bottom straight
+            const startStraight2 = trackPoints[trackPoints.length - 1];
+            const endStraight2 = trackPoints[0];
+            if (!startStraight2 || !endStraight2) throw new Error("Failed at startStraight2/endStraight2");
+            for (let i = 1; i < straightSegments; i++) {
+                const t = i / straightSegments;
+                trackPoints.push({ x: startStraight2.x + (endStraight2.x - startStraight2.x) * t, y: startStraight2.y + (endStraight2.y - startStraight2.y) * t });
+            }
+            // console.log(`Track generated with ${trackPoints.length} points.`);
+            return trackPoints;
+        } catch (error) {
+            console.error("Error during track point generation:", error);
+            return [];
+        }
     }
 
-    // Generate checkpoints along the track path
+    // --- Checkpoint Generation ---
     function generateCheckpoints() {
-      const checkpointCount = 20; // Number of checkpoints
+      // console.log("Generating checkpoints...");
+      const checkpointCount = 20;
       const checkpoints = [];
       const numTrackPoints = track.path.length;
-
-      if (numTrackPoints === 0) return []; // Guard against empty track path
-
+      if (numTrackPoints < 2) { console.error("Cannot generate checkpoints: Not enough track points."); return []; }
       for (let i = 0; i < checkpointCount; i++) {
-        // Distribute checkpoints evenly along the track path
         const index = Math.floor(i * (numTrackPoints / checkpointCount));
-        checkpoints.push({
-          x: track.path[index].x,
-          y: track.path[index].y,
-          index: i // Store the index of the checkpoint
-        });
+        const safeIndex = Math.min(index, numTrackPoints - 1);
+        const point = track.path[safeIndex];
+        if (point) { checkpoints.push({ x: point.x, y: point.y, index: i }); }
+        else { console.error("Invalid point data for checkpoint index:", i, "track index:", safeIndex); }
       }
+      // console.log(`Generated ${checkpoints.length} checkpoints.`);
       return checkpoints;
     }
 
-    // Initialize the game
+    // --- Game Initialization ---
     function init() {
-      track.path = generateTrack();
+      console.log("Initializing game...");
+      try {
+          track.path = generateTrack();
+          if (track.path.length < 2) throw new Error("Track generation failed.");
 
-      // Position car near the start/finish line at the bottom
-      car.x = canvas.width / 2;
-      car.y = canvas.height / 2 + canvas.height * 0.25 + track.width / 4; // Slightly offset from center line
-      car.angle = -Math.PI / 2; // Pointing upward
+          // Position car
+          const startPoint = track.path[0], nextPoint = track.path[1];
+          if (!startPoint || !nextPoint) throw new Error("Track path invalid for positioning car.");
+          const startAngle = Math.atan2(nextPoint.y - startPoint.y, nextPoint.x - startPoint.x);
+          const perpendicularAngle = startAngle + Math.PI / 2;
+          car.x = startPoint.x - Math.cos(perpendicularAngle) * (track.width * 0.25);
+          car.y = startPoint.y - Math.sin(perpendicularAngle) * (track.width * 0.25);
+          car.angle = startAngle;
 
-      // Generate checkpoints
-      game.checkpoints = generateCheckpoints();
+          game.checkpoints = generateCheckpoints();
+          if (game.checkpoints.length === 0) console.warn("Checkpoint generation resulted in zero checkpoints.");
 
-      // Set up keyboard event listeners
-      window.addEventListener('keydown', handleKeyDown);
-      window.addEventListener('keyup', handleKeyUp);
+          // --- FIX: Set initial max speed *after* DOM is ready and elements exist ---
+          updateMaxSpeed();
+          // --- Ensure a valid speed is set if updateMaxSpeed somehow failed ---
+          if (car.maxSpeed === null || isNaN(car.maxSpeed)) {
+              console.warn("Initial max speed read failed, defaulting to 6.");
+              car.maxSpeed = 6; // Default fallback
+          }
 
-      // Start the game loop
-      requestAnimationFrame(gameLoop);
-    }
+          // Position Fan
+          const segmentsPerArc = 30, straightSegments = 10;
+          const topStraightStartIndex = segmentsPerArc + 1, topStraightEndIndex = topStraightStartIndex + straightSegments;
+          if (track.path.length > topStraightEndIndex) {
+              const midIndex = Math.floor((topStraightStartIndex + topStraightEndIndex) / 2);
+              if(track.path[midIndex]) { fan.x = track.path[midIndex].x - 80; fan.y = track.path[midIndex].y; }
+              else { throw new Error("Fan positioning failed: Midpoint index invalid."); }
+          } else {
+              fan.x = canvas.width * 0.7; fan.y = canvas.height * 0.3;
+              console.warn("Could not accurately place fan on track, using fallback.");
+          }
 
-    // Key down event handler
-    function handleKeyDown(e) {
-      if (keys.hasOwnProperty(e.key)) {
-        keys[e.key] = true;
-        e.preventDefault(); // Prevent default browser actions (e.g., scrolling)
+          // Event listeners
+          window.addEventListener('keydown', handleKeyDown);
+          window.addEventListener('keyup', handleKeyUp);
+          speedRadioButtons.forEach(radio => { radio.addEventListener('change', updateMaxSpeed); });
+
+          game.initialized = true;
+          console.log("Game initialized successfully. Initial Max Speed:", car.maxSpeed);
+
+          // Start loop
+          lastTime = performance.now();
+          requestAnimationFrame(gameLoop);
+
+      } catch (error) {
+          console.error("FATAL: Game initialization failed:", error);
+          statusElem.textContent = "Error initializing game. Check console.";
+          statusElem.style.color = "red";
+          gameRunning = false;
       }
     }
 
-    // Key up event handler
-    function handleKeyUp(e) {
-      if (keys.hasOwnProperty(e.key)) {
-        keys[e.key] = false;
-        e.preventDefault();
-      }
-    }
-
-    // Check if a point (x, y) is on the track surface
-    function isOnTrack(x, y) {
-      if (track.path.length < 2) return false; // Need at least 2 points for a track segment
-
-      let onTrack = false;
-      // Iterate through track segments to check distance
-      for (let i = 0; i < track.path.length; i++) {
-        const p1 = track.path[i];
-        const p2 = track.path[(i + 1) % track.path.length]; // Wrap around for the last segment
-
-        // Calculate the shortest distance from the point (car center) to the track centerline segment
-        const d = distToSegment({ x, y }, p1, p2);
-
-        // If the distance is less than half the track width, the point is on the track
-        if (d < track.width / 2) {
-          onTrack = true;
-          break; // No need to check further segments
+    // --- Update Max Speed ---
+    function updateMaxSpeed() {
+        try {
+            const selectedRadio = document.querySelector('input[name="maxSpeed"]:checked');
+            if (selectedRadio) {
+                const newSpeed = parseFloat(selectedRadio.value);
+                if (!isNaN(newSpeed)) {
+                    car.maxSpeed = newSpeed;
+                    console.log("Max speed updated to:", car.maxSpeed); // Confirmation log
+                } else {
+                    console.warn("Failed to parse max speed value, keeping previous:", car.maxSpeed);
+                }
+            } else {
+                 // This case should ideally not happen with a default checked radio
+                 console.warn("No max speed radio button checked.");
+                 // Keep the existing car.maxSpeed or default if it's null
+                 if (car.maxSpeed === null) car.maxSpeed = 6;
+            }
+        } catch (e) {
+            console.error("Error reading/updating max speed:", e);
+            // Keep existing or default if null
+            if (car.maxSpeed === null) car.maxSpeed = 6;
         }
+    }
+
+    // --- Input Handlers ---
+    function handleKeyDown(e) { if (keys.hasOwnProperty(e.key)) { keys[e.key] = true; e.preventDefault(); } }
+    function handleKeyUp(e) { if (keys.hasOwnProperty(e.key)) { keys[e.key] = false; e.preventDefault(); } }
+
+    // --- Collision & Track Detection ---
+    function isOnTrack(x, y) {
+      if (track.path.length < 2) return false;
+      let onTrack = false;
+      for (let i = 0; i < track.path.length; i++) {
+        const p1 = track.path[i], p2 = track.path[(i + 1) % track.path.length];
+        if (!p1 || !p2) continue; // Skip if points are invalid
+        const d = distToSegment({ x, y }, p1, p2);
+        if (d < track.width / 2) { onTrack = true; break; }
       }
       return onTrack;
     }
 
-    // --- Helper functions for distance calculation ---
-    // Calculate distance from point p to line segment vw
+    // --- Distance Helpers ---
     function distToSegment(p, v, w) {
-      const l2 = distSq(v, w); // Squared length of the segment
-      if (l2 === 0) return dist(p, v); // Handle case where segment is a point
-
-      // Project point p onto the line containing the segment vw
+      const l2 = distSq(v, w); if (l2 === 0) return dist(p, v);
       let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
-      t = Math.max(0, Math.min(1, t)); // Clamp t to the range [0, 1] to stay within the segment
-
-      // Calculate the closest point on the segment to p
-      const closestPoint = {
-        x: v.x + t * (w.x - v.x),
-        y: v.y + t * (w.y - v.y)
-      };
-      return dist(p, closestPoint); // Return the distance
+      t = Math.max(0, Math.min(1, t));
+      const closestPoint = { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) };
+      return dist(p, closestPoint);
     }
+    function distSq(v, w) { return Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2); }
+    function dist(v, w) { return Math.sqrt(distSq(v, w)); }
 
-    // Calculate squared distance between two points
-    function distSq(v, w) {
-      return Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2);
-    }
-
-    // Calculate distance between two points
-    function dist(v, w) {
-      return Math.sqrt(distSq(v, w));
-    }
-    // --- End Helper functions ---
-
-    // Check for checkpoint crossing and update lap counts
+    // --- Checkpoint Logic ---
     function checkCheckpoints() {
-        const numCheckpoints = game.checkpoints.length;
-        if (numCheckpoints === 0) return; // No checkpoints defined
-
+        const numCheckpoints = game.checkpoints.length; if (numCheckpoints === 0) return;
         const carPos = { x: car.x, y: car.y };
-        const checkpointRadius = 40; // Activation radius for checkpoints
-
-        // Find the closest checkpoint the car might be activating
-        let closestDist = Infinity;
-        let closestIndex = -1;
+        const checkpointRadius = track.width * 0.6;
+        let closestDist = Infinity, closestCheckpointData = null;
 
         for (let i = 0; i < numCheckpoints; i++) {
-            const d = dist(carPos, game.checkpoints[i]);
-            if (d < checkpointRadius && d < closestDist) {
-                closestDist = d;
-                closestIndex = i;
-            }
+            const cp = game.checkpoints[i]; if (!cp) continue; // Skip invalid checkpoints
+            const d = dist(carPos, cp);
+            if (d < checkpointRadius && d < closestDist) { closestDist = d; closestCheckpointData = cp; }
         }
 
-        // If a checkpoint is activated and it's different from the last one hit
-        if (closestIndex !== -1 && closestIndex !== game.lastCheckpointHit) {
-            const lastHit = game.lastCheckpointHit;
-            const currentHit = closestIndex;
-
-            // Determine expected next checkpoints for both directions
+        if (closestCheckpointData && closestCheckpointData.index !== game.lastCheckpointHit) {
+            const lastHit = game.lastCheckpointHit, currentHit = closestCheckpointData.index;
             const expectedClockwise = (lastHit + 1) % numCheckpoints;
             const expectedCounterClockwise = (lastHit - 1 + numCheckpoints) % numCheckpoints;
+            let lapCompleted = false, lapDirection = '', wasClean = false;
 
-            let lapCompleted = false;
-            let lapDirection = ''; // 'CW' or 'CCW'
-            let wasClean = false;
-
-            // --- First checkpoint hit ---
-            if (lastHit === -1) {
-                game.lapInProgress = true; // Start a lap attempt
-                game.touchedGrass = false; // Reset grass flag for the new lap attempt
-                statusElem.textContent = ""; // Clear status
-                console.log("Lap attempt started, hit checkpoint:", currentHit);
-            }
-            // --- Subsequent checkpoint hits ---
+            if (lastHit === -1) { game.lapInProgress = true; game.touchedGrass = false; statusElem.textContent = ""; }
             else {
-                // --- Clockwise Detection ---
                 if (currentHit === expectedClockwise) {
-                    console.log(`CW: Hit ${currentHit} (expected from ${lastHit})`);
-                    if (currentHit === 0) { // Completed a full clockwise lap (passed N-1, now hit 0)
-                        if (game.lapInProgress) { // Ensure a lap was actually in progress
-                            game.clockwiseLaps++;
-                            wasClean = !game.touchedGrass;
-                            if (wasClean) game.cleanLaps++;
-                            lapCompleted = true;
-                            lapDirection = 'CW';
-                            console.log("CW Lap Completed. Clean:", wasClean);
-                        }
+                    if (currentHit === 0 && game.lapInProgress) {
+                        game.clockwiseLaps++; wasClean = !game.touchedGrass; if (wasClean) game.cleanLaps++;
+                        lapCompleted = true; lapDirection = 'CW';
                     }
-                }
-                // --- Counter-Clockwise Detection ---
-                else if (currentHit === expectedCounterClockwise) {
-                     console.log(`CCW: Hit ${currentHit} (expected from ${lastHit})`);
-                    // A CCW lap completes when transitioning from checkpoint 1 to checkpoint 0
-                    if (currentHit === 0 && lastHit === 1) {
-                       if (game.lapInProgress) { // Ensure a lap was actually in progress
-                            game.counterClockwiseLaps++;
-                            wasClean = !game.touchedGrass;
-                            if (wasClean) game.cleanLaps++;
-                            lapCompleted = true;
-                            lapDirection = 'CCW';
-                            console.log("CCW Lap Completed. Clean:", wasClean);
-                       }
+                } else if (currentHit === expectedCounterClockwise) {
+                    if (currentHit === 0 && lastHit === 1 && game.lapInProgress) {
+                        game.counterClockwiseLaps++; wasClean = !game.touchedGrass; if (wasClean) game.cleanLaps++;
+                        lapCompleted = true; lapDirection = 'CCW';
                     }
-                     // Special case: Starting a CCW lap by going from 0 to N-1
-                    else if (currentHit === numCheckpoints - 1 && lastHit === 0) {
-                         console.log("Starting potential CCW lap segment (0 -> N-1)");
-                         // This confirms CCW direction if lap just started
-                    }
-                }
-                 // --- Out of Sequence ---
-                else {
-                    console.log(`Out of sequence: Hit ${currentHit}, expected CW ${expectedClockwise} or CCW ${expectedCounterClockwise} from ${lastHit}`);
-                    // Hitting a checkpoint out of sequence might invalidate the lap or just be ignored.
-                    // For simplicity, we'll just record the hit and continue.
-                    // A strict implementation might set game.lapInProgress = false here.
                 }
             }
-
-            // Update last checkpoint hit regardless of sequence for next comparison
             game.lastCheckpointHit = currentHit;
-
-            // Handle lap completion
             if (lapCompleted) {
                 cwLapElem.textContent = `CW Laps: ${game.clockwiseLaps}`;
                 ccwLapElem.textContent = `CCW Laps: ${game.counterClockwiseLaps}`;
                 cleanLapElem.textContent = `Clean Laps: ${game.cleanLaps}`;
-
-                // Display status message
-                if (wasClean) {
-                    statusElem.textContent = `Clean ${lapDirection} Lap!`;
-                    statusElem.style.color = "#4CAF50"; // Green
-                } else {
-                    statusElem.textContent = `${lapDirection} Lap Complete (Dirty)`;
-                    statusElem.style.color = "#FFEB3B"; // Yellow
-                }
-                 // Reset for the *next* lap attempt
+                statusElem.textContent = wasClean ? `Clean ${lapDirection} Lap!` : `${lapDirection} Lap Complete (Dirty)`;
+                statusElem.style.color = wasClean ? "#4CAF50" : "#FFEB3B";
                 game.touchedGrass = false;
-                // game.lapInProgress = false; // Reset lap progress? Or let it continue? Let's allow continuous laps.
-                // Clear status message after a delay
-                setTimeout(() => { statusElem.textContent = ""; }, 2500);
+                setTimeout(() => { if (statusElem.textContent.includes("Lap Complete")) statusElem.textContent = ""; }, 2500);
             }
         }
     }
 
-
-    // Update game state based on controls and physics
+    // --- Game Update Logic ---
     function update(deltaTime) {
-      // Handle car acceleration and braking
-      if (keys.ArrowUp) {
-        car.speed += car.acceleration;
-      } else if (keys.ArrowDown) {
-        car.speed -= car.acceleration * 0.7; // Less effective braking/reverse
-      }
+        // Ensure maxSpeed is valid before using it
+        const effectiveMaxSpeed = (typeof car.maxSpeed === 'number' && !isNaN(car.maxSpeed)) ? car.maxSpeed : 6; // Fallback
 
-      // Handle car turning (more effective at higher speeds)
-      const turnFactor = Math.min(1, Math.abs(car.speed) / (car.maxSpeed * 0.5)); // Turning effectiveness scales with speed
-      if (keys.ArrowLeft) {
-        car.angle -= car.rotationSpeed * turnFactor;
-      }
-      if (keys.ArrowRight) {
-        car.angle += car.rotationSpeed * turnFactor;
-      }
+        // --- Controls ---
+        if (keys.ArrowUp) car.speed += car.acceleration;
+        else if (keys.ArrowDown) car.speed -= car.acceleration * 0.7;
 
-      // Apply fan force if active
-      if (fan.active) {
-        // Apply force based on car's relative position to fan (simple horizontal push)
-        if (car.x > fan.x) { // Only push if car is to the right of the fan
-             // Simple model: constant force pushing right
-             // A more complex model could consider angle and distance
-             car.x += fan.force; // Directly affect position for simplicity
-             // Or apply as acceleration: car.speed += fan.force * Math.cos(car.angle - fanAngle) etc.
+        const turnEffectivenessSpeed = effectiveMaxSpeed * 0.7;
+        const turnFactor = Math.min(1, turnEffectivenessSpeed / (Math.abs(car.speed) + 1e-6));
+        const effectiveRotationSpeed = car.rotationSpeed * turnFactor;
+        if (keys.ArrowLeft) car.angle -= effectiveRotationSpeed;
+        if (keys.ArrowRight) car.angle += effectiveRotationSpeed;
+
+        // --- Fan Physics ---
+        if (fan.active) { if (car.x > fan.x) car.x += fan.force; fan.bladeAngle = (fan.bladeAngle + fan.bladeSpeed) % (Math.PI * 2); }
+
+           // --- Surface Physics ---
+    car.onGrass = !isOnTrack(car.x, car.y);
+    let currentMaxSpeed;
+    let grassMaxSpeed = effectiveMaxSpeed * car.grassMaxSpeedRatio;
+
+    if (car.onGrass) {
+        // only slow down on grass when not actively accelerating/braking
+        if (!keys.ArrowUp && !keys.ArrowDown) {
+            car.speed *= car.grassFriction;
         }
-        fan.bladeAngle = (fan.bladeAngle + fan.bladeSpeed) % (Math.PI * 2); // Rotate blades
-      }
-
-      // Check if car is on the grass
-      car.onGrass = !isOnTrack(car.x, car.y);
-
-      // Apply friction and speed limits based on surface
-      let currentMaxSpeed;
-      if (car.onGrass) {
-        car.speed *= car.grassFriction; // Apply high grass friction
-        currentMaxSpeed = car.grassMaxSpeed;
-        // Mark lap as dirty if on grass during a lap attempt
+        currentMaxSpeed = grassMaxSpeed;
         if (game.lapInProgress && !game.touchedGrass) {
-          game.touchedGrass = true;
-          statusElem.textContent = "Touched grass! Lap is dirty.";
-          statusElem.style.color = "#F44336"; // Red
-          // Don't clear this message immediately, wait for lap completion
-           console.log("Touched grass, lap marked dirty.");
+            game.touchedGrass = true;
+            statusElem.textContent = "Touched grass! Lap is dirty.";
+            statusElem.style.color = "#F44336";
         }
-      } else {
-        car.speed *= car.friction; // Apply normal track friction
-        currentMaxSpeed = car.maxSpeed;
-      }
-
-      // Clamp speed to max/min limits for the current surface
-      car.speed = Math.max(-currentMaxSpeed / 2, Math.min(currentMaxSpeed, car.speed)); // Allow reverse up to half max speed
-
-      // Update car position based on speed and angle
-      // Delta time isn't used here, leading to frame-rate dependent speed.
-      // For frame-rate independence: multiply speed by (deltaTime / 16.66) if aiming for 60fps baseline
-      const dx = Math.sin(car.angle) * car.speed;
-      const dy = -Math.cos(car.angle) * car.speed; // Y is inverted in canvas coords
-
-      car.x += dx;
-      car.y += dy;
-
-      // Basic boundary collision (prevent going completely off canvas)
-      car.x = Math.max(car.width / 2, Math.min(canvas.width - car.width / 2, car.x));
-      car.y = Math.max(car.height / 2, Math.min(canvas.height - car.height / 2, car.y));
-
-      // Check for checkpoint crossings
-      checkCheckpoints();
-
-      // Update speedometer UI
-      speedoElem.textContent = `Speed: ${Math.abs(car.speed).toFixed(1)}`;
+    } else {
+        // only apply normal friction when no throttle/brake
+        if (!keys.ArrowUp && !keys.ArrowDown) {
+            car.speed *= car.friction;
+        }
+        currentMaxSpeed = effectiveMaxSpeed;
     }
 
-    // Render all game elements
+        // --- Speed Clamping ---
+        car.speed = Math.max(-currentMaxSpeed / 2, Math.min(currentMaxSpeed, car.speed));
+
+        // --- Movement ---
+        const dtFactor = deltaTime / TARGET_DT; const moveSpeed = car.speed * dtFactor;
+        const dx = Math.sin(car.angle) * moveSpeed, dy = -Math.cos(car.angle) * moveSpeed;
+        car.x += dx; car.y += dy;
+
+        // --- Canvas Boundaries ---
+        car.x = Math.max(car.width / 2, Math.min(canvas.width - car.width / 2, car.x));
+        car.y = Math.max(car.height / 2, Math.min(canvas.height - car.height / 2, car.y));
+
+        // --- Checkpoints ---
+        checkCheckpoints();
+
+        // --- Update UI ---
+        speedoElem.textContent = `Speed: ${Math.abs(car.speed).toFixed(1)}`;
+    }
+
+    // --- Rendering Functions ---
     function render() {
-      // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Draw grass (background)
-      ctx.fillStyle = '#7cba65';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Draw track
-      drawTrack();
-
-      // Draw fan
-      drawFan();
-
-      // Draw car
-      drawCar();
-
-       // Optionally draw checkpoints for debugging
-       /*
-       ctx.fillStyle = 'rgba(0, 0, 255, 0.3)';
-       ctx.strokeStyle = 'blue';
-       ctx.lineWidth = 1;
-       game.checkpoints.forEach((cp, index) => {
-           ctx.beginPath();
-           ctx.arc(cp.x, cp.y, 40, 0, Math.PI * 2); // Draw activation radius
-           ctx.fill();
-           ctx.stroke();
-           ctx.fillStyle = 'white';
-           ctx.fillText(index, cp.x - 5, cp.y + 5);
-       });
-       */
+      ctx.fillStyle = '#7cba65'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawTrack(); drawFan(); drawCar();
+      // drawDebugInfo();
     }
 
-    // Draw the race track
     function drawTrack() {
-        if (track.path.length < 2) return;
-
-        // --- Draw main track surface ---
-        ctx.lineWidth = track.width;
-        ctx.strokeStyle = track.color;
-        ctx.lineCap = 'round'; // Smoother joins for the thick line
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        ctx.moveTo(track.path[0].x, track.path[0].y);
-        for (let i = 1; i < track.path.length; i++) {
-            ctx.lineTo(track.path[i].x, track.path[i].y);
-        }
-        ctx.closePath(); // Connect the last point to the first
-        ctx.stroke();
-
-        // --- Draw track borders ---
-        // This requires calculating offset points, which can be complex for curves.
-        // A simpler approximation: Draw the centerline again with a smaller width and white color.
-        ctx.lineWidth = track.width - track.borderWidth * 2;
-        ctx.strokeStyle = track.color; // Draw track color again slightly thinner
-        // ctx.stroke(); // This creates inner borders implicitly, let's skip explicit borders for simplicity with thick line method
-
-        // --- Draw start/finish line ---
-        const startPoint = track.path[0];
-        const nextPoint = track.path[1]; // Point after start for direction
-        const angle = Math.atan2(nextPoint.y - startPoint.y, nextPoint.x - startPoint.x); // Angle of the track segment
-        const perpendicularAngle = angle + Math.PI / 2; // Angle perpendicular to the track
-
-        ctx.save(); // Save context state
-        ctx.translate(startPoint.x, startPoint.y); // Move origin to start line center
-        ctx.rotate(perpendicularAngle); // Rotate context to align with the start line width
-
-        const lineLength = track.width; // Line covers the track width
-        const checkSize = 10; // Size of checker squares
-        const numChecks = Math.floor(lineLength / checkSize);
-
-        for (let i = 0; i < numChecks; i++) {
-            for (let j = 0; j < 2; j++) { // Two rows of checks
-                // Alternate colors based on row and column
+        if (track.path.length < 2) return; ctx.save();
+        // Main track surface
+        ctx.lineWidth = track.width; ctx.strokeStyle = track.color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(track.path[0].x, track.path[0].y);
+        for (let i = 1; i < track.path.length; i++) { if (track.path[i]) ctx.lineTo(track.path[i].x, track.path[i].y); }
+        ctx.closePath(); ctx.stroke();
+        // Track borders
+        ctx.lineWidth = track.borderWidth; ctx.strokeStyle = track.borderColor; ctx.stroke();
+        // Start/finish line
+        const startPoint = track.path[0], nextPoint = track.path[1]; if (!startPoint || !nextPoint) { ctx.restore(); return; }
+        const angle = Math.atan2(nextPoint.y - startPoint.y, nextPoint.x - startPoint.x); const perpendicularAngle = angle + Math.PI / 2;
+        ctx.translate(startPoint.x, startPoint.y); ctx.rotate(perpendicularAngle);
+        const lineLength = track.width; const checkSize = lineLength / 8;
+        for (let i = 0; i < 8; i++) { for (let j = 0; j < 2; j++) {
                 ctx.fillStyle = (i + j) % 2 === 0 ? '#FFFFFF' : '#000000';
-                ctx.fillRect(
-                    -lineLength / 2 + i * checkSize, // X position along the rotated axis
-                    -checkSize + j * checkSize,      // Y position (stacking the two rows)
-                    checkSize,                       // Width of check
-                    checkSize                        // Height of check
-                );
-            }
-        }
-        ctx.restore(); // Restore context state
+                ctx.fillRect(-lineLength / 2 + i * checkSize, -checkSize + j * checkSize, checkSize, checkSize); } }
+        ctx.restore();
     }
 
-
-    // Draw the fan element
     function drawFan() {
-        ctx.save();
-        ctx.translate(fan.x, fan.y); // Move origin to fan center
-
-        // Fan base (static part)
-        ctx.fillStyle = '#444'; // Darker base
-        ctx.fillRect(-fan.width / 2, -fan.height / 2, fan.width, fan.height);
-        // Add some detail to base
-        ctx.fillStyle = '#555';
-        ctx.fillRect(-fan.width/2 + 5, -fan.height/2 + 5, fan.width - 10, fan.height - 10);
-
-
-        // Rotating Blades
-        ctx.save();
-        ctx.rotate(fan.bladeAngle); // Rotate for blade animation
-        ctx.fillStyle = '#aaa'; // Lighter blade color
-        const bladeWidth = fan.width * 0.15;
-        const bladeLength = fan.width * 0.6;
-        // Draw 4 blades
-        for (let i = 0; i < 4; i++) {
-            ctx.rotate(Math.PI / 2); // Rotate for next blade
-            // Simple rectangular blade shape
-            ctx.fillRect(-bladeWidth / 2, 0, bladeWidth, bladeLength);
-        }
-        ctx.restore(); // Restore rotation state
-
-        // Fan center hub
-        ctx.fillStyle = '#666';
-        ctx.beginPath();
-        ctx.arc(0, 0, fan.width / 5, 0, Math.PI * 2); // Center circle
-        ctx.fill();
-
-        // Draw visual representation of air flow (subtle)
-        if (fan.active) {
-            ctx.fillStyle = 'rgba(220, 220, 255, 0.08)'; // Very subtle blueish tint
-            ctx.beginPath();
-            // Wider cone shape representing airflow area
-            ctx.moveTo(fan.width / 2, -fan.height * 1.5); // Start top-left of flow area
-            ctx.lineTo(canvas.width, -fan.height * 2); // Extend far top-right
-            ctx.lineTo(canvas.width, fan.height * 2);  // Extend far bottom-right
-            ctx.lineTo(fan.width / 2, fan.height * 1.5); // Back to bottom-left of flow area
-            ctx.closePath();
-            ctx.fill();
-        }
-
-        ctx.restore(); // Restore translation state
+        ctx.save(); ctx.translate(fan.x, fan.y);
+        // Base
+        ctx.fillStyle = '#444'; ctx.fillRect(-fan.width / 2, -fan.height / 2, fan.width, fan.height);
+        ctx.fillStyle = '#555'; ctx.fillRect(-fan.width/2 + 5, -fan.height/2 + 5, fan.width - 10, fan.height - 10);
+        // Blades
+        ctx.save(); ctx.rotate(fan.bladeAngle); ctx.fillStyle = '#aaa';
+        const bladeWidth = fan.width * 0.15, bladeLength = fan.width * 0.6;
+        for (let i = 0; i < 4; i++) { ctx.rotate(Math.PI / 2); ctx.fillRect(-bladeWidth / 2, 0, bladeWidth, bladeLength); }
+        ctx.restore(); // Restore blade rotation
+        // Hub
+        ctx.fillStyle = '#666'; ctx.beginPath(); ctx.arc(0, 0, fan.width / 5, 0, Math.PI * 2); ctx.fill();
+        // Airflow viz
+        if (fan.active) { ctx.fillStyle = 'rgba(220, 220, 255, 0.08)'; const airWidth = canvas.width - fan.x, airHeight = fan.height * 3; ctx.fillRect(fan.width / 2, -airHeight / 2, airWidth, airHeight); }
+        ctx.restore(); // Restore fan translation
     }
 
-    // Draw the car
     function drawCar() {
-      ctx.save(); // Save context state
-      ctx.translate(car.x, car.y); // Move origin to car center
-      ctx.rotate(car.angle); // Rotate context to car's angle
-
+      ctx.save(); ctx.translate(car.x, car.y); ctx.rotate(car.angle);
       // Car body
-      ctx.fillStyle = car.color;
-      ctx.beginPath();
-      // More car-like shape instead of just a rectangle
-      ctx.rect(-car.width / 2, -car.height / 2, car.width, car.height);
-      ctx.fill();
-
-      // Windshield area (darker rectangle)
-      ctx.fillStyle = '#333'; // Dark grey for windshield
-      ctx.fillRect(
-          -car.width / 2 + 3,  // Indent slightly
-          -car.height / 2 + 4,  // Position towards the front
-          car.width - 6,       // Slightly narrower
-          car.height / 3.5     // Height of windshield
-      );
-
-       // Simple Headlights (small yellow squares at the front)
-       ctx.fillStyle = 'yellow';
-       ctx.fillRect(-car.width/2 + 2, -car.height/2 + 1, 3, 3); // Left headlight
-       ctx.fillRect( car.width/2 - 5, -car.height/2 + 1, 3, 3); // Right headlight
-
-
-      ctx.restore(); // Restore context state
+      ctx.fillStyle = car.color; ctx.beginPath(); ctx.rect(-car.width / 2, -car.height / 2, car.width, car.height); ctx.fill();
+      // Windshield
+      ctx.fillStyle = '#333'; ctx.fillRect(-car.width / 2 + 3, -car.height / 2 + 4, car.width - 6, car.height / 3.5);
+      // Headlights
+      ctx.fillStyle = 'yellow'; ctx.fillRect(-car.width/2 + 2, -car.height/2 + 1, 3, 3); ctx.fillRect( car.width/2 - 5, -car.height/2 + 1, 3, 3);
+      ctx.restore();
     }
 
-    // Main game loop
+    // --- Optional Debug Drawing ---
+    function drawDebugInfo() { /* ... (keep if needed) ... */ }
+
+    // --- Game Loop ---
     function gameLoop(timestamp) {
-      // Calculate time elapsed since last frame
-      const deltaTime = timestamp - lastTime;
-      lastTime = timestamp;
-
-      // Update game logic
-      update(deltaTime);
-
-      // Render game graphics
-      render();
-
-      // Request next frame if game is running
-      if (gameRunning) {
-        requestAnimationFrame(gameLoop);
-      }
+      if (!gameRunning) return;
+      if (!game.initialized) { requestAnimationFrame(gameLoop); return; } // Wait if not initialized
+      const deltaTime = timestamp - lastTime; lastTime = timestamp;
+      const clampedDeltaTime = Math.min(deltaTime, TARGET_DT * 3);
+      update(clampedDeltaTime); render();
+      requestAnimationFrame(gameLoop);
     }
 
-    // --- Start the game ---
-    init();
+    // --- Start the Game ---
+    window.onload = () => { init(); };
+
   </script>
 </body>
 </html>
