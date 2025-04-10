@@ -2,261 +2,523 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Oval Track with Visible Fan and Wind Effect</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simple Racing Game</title>
   <style>
     body {
       margin: 0;
-      background: #333;
+      overflow: hidden;
       display: flex;
       justify-content: center;
       align-items: center;
       height: 100vh;
+      background-color: #333;
     }
-    canvas {
-      background: #556B2F; /* Simulates grass */
-      display: block;
+    #gameCanvas {
+      background-color: #7cba65; /* Grass color */
+      border: 2px solid #000;
+    }
+    .instructions {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      font-family: Arial, sans-serif;
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 10px;
+      border-radius: 5px;
     }
   </style>
 </head>
 <body>
+  <div class="instructions">
+    <h3>Racing Game Controls</h3>
+    <p>↑ - Accelerate<br>↓ - Brake/Reverse<br>← - Turn Left<br>→ - Turn Right</p>
+    <p id="speedometer">Speed: 0</p>
+    <p id="lapCounter">Laps: 0</p>
+    <p id="cleanLapCounter">Clean Laps: 0</p>
+    <p id="status"></p>
+  </div>
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
 
-<canvas id="gameCanvas" width="800" height="600"></canvas>
-
-<script>
-// =====================
-// Game Setup Variables
-// =====================
-
-// Get canvas and context
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-
-// Oval Track Settings (elliptical track center and radii)
-// Outer ellipse and inner ellipse define the track boundaries
-const trackCenter = { x: canvas.width / 2, y: canvas.height / 2 };
-const outerRadii = { x: 300, y: 200 }; // Outer ellipse radii
-const innerRadii = { x: 180, y: 120 }; // Inner ellipse radii
-
-// Car object settings
-const car = {
-  x: trackCenter.x,
-  y: trackCenter.y - 150,  // Starting position near outer edge
-  angle: Math.PI / 2,       // Facing downward
-  speed: 0,
-  maxSpeed: 5,
-  accel: 0.2,
-  decel: 0.1,
-  friction: 0.05,
-  turnSpeed: 0.04,
-  width: 20,
-  height: 10
-};
-
-// Wind (Fan) effect: constant force pushing the car to the right
-const windForce = 0.05;
-
-// Fan position (placed in the upper left corner so it doesn't interfere with the track)
-const fan = {
-  x: 60,
-  y: 60,
-  radius: 30
-};
-
-// Key state tracking
-const keys = {};
-
-// ============
-// Event Listeners
-// ============
-
-window.addEventListener('keydown', (e) => {
-  keys[e.key] = true;
-});
-
-window.addEventListener('keyup', (e) => {
-  keys[e.key] = false;
-});
-
-// ============
-// Helper Functions
-// ============
-
-// Helper function to draw an arrow from point (fromx, fromy) to (tox, toy)
-function drawArrow(fromx, fromy, tox, toy) {
-  const headlen = 10; // length of head in pixels
-  const dx = tox - fromx;
-  const dy = toy - fromy;
-  const angle = Math.atan2(dy, dx);
-  ctx.beginPath();
-  ctx.moveTo(fromx, fromy);
-  ctx.lineTo(tox, toy);
-  ctx.lineTo(
-    tox - headlen * Math.cos(angle - Math.PI/6),
-    toy - headlen * Math.sin(angle - Math.PI/6)
-  );
-  ctx.moveTo(tox, toy);
-  ctx.lineTo(
-    tox - headlen * Math.cos(angle + Math.PI/6),
-    toy - headlen * Math.sin(angle + Math.PI/6)
-  );
-  ctx.strokeStyle = "#00f";
-  ctx.lineWidth = 2;
-  ctx.stroke();
-}
-
-// Function to draw a visible fan with blades and air arrows
-function drawFan() {
-  // Draw fan base (a circle)
-  ctx.save();
-  ctx.translate(fan.x, fan.y);
-  ctx.beginPath();
-  ctx.arc(0, 0, fan.radius, 0, Math.PI * 2);
-  ctx.fillStyle = "#bbb";
-  ctx.fill();
-  ctx.strokeStyle = "#888";
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  
-  // Draw fan blades (static lines for simplicity)
-  ctx.strokeStyle = "#666";
-  ctx.lineWidth = 4;
-  for(let i = 0; i < 4; i++) {
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(fan.radius - 5, 0);
-    ctx.stroke();
-    ctx.rotate(Math.PI / 2);
-  }
-  ctx.restore();
-
-  // Draw wind arrows emanating from the fan
-  for (let i = 0; i < 5; i++) {
-    // Compute starting and ending positions for each arrow.
-    let startX = fan.x + fan.radius + 10 + i * 40;
-    let startY = fan.y;
-    let endX = startX + 30;
-    let endY = startY;
-    drawArrow(startX, startY, endX, endY);
-  }
-}
-
-// ============
-// Game Functions
-// ============
-
-// Update car physics based on key inputs, applying wind each frame
-function updateCar() {
-  // Accelerate (up arrow)
-  if (keys["ArrowUp"]) {
-    car.speed += car.accel;
-    if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
-  }
-  // Brake/Reverse (down arrow)
-  if (keys["ArrowDown"]) {
-    car.speed -= car.accel;
-    if (car.speed < -car.maxSpeed / 2) car.speed = -car.maxSpeed / 2;
-  }
-  // Turn left/right (turn influenced by current speed)
-  if (keys["ArrowLeft"]) {
-    car.angle -= car.turnSpeed * (car.speed / car.maxSpeed);
-  }
-  if (keys["ArrowRight"]) {
-    car.angle += car.turnSpeed * (car.speed / car.maxSpeed);
-  }
-  
-  // Update position using the car's angle and speed
-  car.x += Math.cos(car.angle) * car.speed;
-  car.y += Math.sin(car.angle) * car.speed;
-  
-  // Apply the wind force that pushes the car to the right (increases x)
-  car.x += windForce;
-  
-  // Apply friction when not accelerating or braking
-  if (!keys["ArrowUp"] && !keys["ArrowDown"]) {
-    if (car.speed > 0) {
-      car.speed -= car.friction;
-      if (car.speed < 0) car.speed = 0;
-    } else if (car.speed < 0) {
-      car.speed += car.friction;
-      if (car.speed > 0) car.speed = 0;
+  <script>
+    // Game canvas and context
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Game elements
+    const track = {
+      path: [],
+      width: 100, // Wider track
+      color: '#333333',
+      borderColor: '#FFFFFF',
+      borderWidth: 5
+    };
+    
+    const car = {
+      x: 250,
+      y: 400,
+      width: 16,
+      height: 24,
+      angle: 0,
+      speed: 0,
+      acceleration: 0.15,
+      maxSpeed: 3,
+      friction: 0.97,
+      rotationSpeed: 0.06,
+      grassFriction: 0.3, // Very high friction on grass
+      grassMaxSpeed: 0.6,  // Very low max speed on grass
+      color: 'red',
+      onGrass: false,
+      lastOnGrass: false
+    };
+    
+    const fan = {
+      x: 30,
+      y: 300,
+      width: 40,
+      height: 40,
+      force: 0.05,
+      active: true,
+      bladeAngle: 0,
+      bladeSpeed: 0.1
+    };
+    
+    // Game state
+    const game = {
+      checkpoints: [],
+      currentCheckpoint: 0,
+      laps: 0,
+      cleanLaps: 0,
+      touchedGrass: false,
+      lapStarted: false
+    };
+    
+    // Control states
+    const keys = {
+      ArrowUp: false,
+      ArrowDown: false,
+      ArrowLeft: false,
+      ArrowRight: false
+    };
+    
+    // Game state
+    let lastTime = 0;
+    let gameRunning = true;
+    
+    // Generate a simple oval track with two wide turns
+    function generateTrack() {
+      const trackPoints = [];
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const radiusX = canvas.width * 0.35; // Oval X radius
+      const radiusY = canvas.height * 0.25; // Oval Y radius
+      
+      // Generate oval track
+      const segments = 40;
+      for (let i = 0; i <= segments; i++) {
+        const angle = (i / segments) * Math.PI * 2;
+        
+        // Create oval shape
+        const x = centerX + radiusX * Math.cos(angle);
+        const y = centerY + radiusY * Math.sin(angle);
+        
+        trackPoints.push({ x, y });
+      }
+      
+      return trackPoints;
     }
-  }
-  
-  // Collision: Check if the car is off the oval track.
-  // Outer ellipse test:
-  let dxOuter = car.x - trackCenter.x;
-  let dyOuter = car.y - trackCenter.y;
-  let normOuter = (dxOuter * dxOuter) / (outerRadii.x * outerRadii.x) +
-                  (dyOuter * dyOuter) / (outerRadii.y * outerRadii.y);
-  
-  // Inner ellipse test:
-  let dxInner = car.x - trackCenter.x;
-  let dyInner = car.y - trackCenter.y;
-  let normInner = (dxInner * dxInner) / (innerRadii.x * innerRadii.x) +
-                  (dyInner * dyInner) / (innerRadii.y * innerRadii.y);
-  
-  // If the car is outside the outer boundary or inside the inner boundary, simulate collision.
-  if (normOuter > 1 || normInner < 1) {
-    car.speed = 0;
-  }
-}
-
-// Draw the oval track using outer and inner ellipses.
-function drawTrack() {
-  ctx.save();
-  ctx.translate(trackCenter.x, trackCenter.y);
-  
-  // Draw the outer ellipse (the road)
-  ctx.beginPath();
-  ctx.ellipse(0, 0, outerRadii.x, outerRadii.y, 0, 0, Math.PI * 2);
-  ctx.fillStyle = "#888"; // Road color
-  ctx.fill();
-  
-  // Draw the inner ellipse (grass inside the track)
-  ctx.beginPath();
-  ctx.ellipse(0, 0, innerRadii.x, innerRadii.y, 0, 0, Math.PI * 2);
-  ctx.fillStyle = "#556B2F"; // Grass same as background
-  ctx.fill();
-  ctx.restore();
-}
-
-// Draw the car as a rotated rectangle
-function drawCar() {
-  ctx.save();
-  ctx.translate(car.x, car.y);
-  ctx.rotate(car.angle);
-  // Draw the car body
-  ctx.fillStyle = "#f00"; // Red car
-  ctx.fillRect(-car.width / 2, -car.height / 2, car.width, car.height);
-  
-  // Draw a front indicator for the car (small rectangle)
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(car.width / 4, -car.height / 4, car.width / 4, car.height / 2);
-  ctx.restore();
-}
-
-// Main game loop
-function gameLoop() {
-  // Clear canvas and redraw background (grass)
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#556B2F";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  
-  // Draw visible fan (with air arrows)
-  drawFan();
-  
-  // Update car physics and redraw track and car
-  updateCar();
-  drawTrack();
-  drawCar();
-  
-  requestAnimationFrame(gameLoop);
-}
-
-// Start the game loop
-requestAnimationFrame(gameLoop);
-</script>
-
+    
+    // Generate checkpoints for lap counting
+    function generateCheckpoints() {
+      const checkpointCount = 20;
+      const checkpoints = [];
+      
+      for (let i = 0; i < checkpointCount; i++) {
+        const index = Math.floor(i * (track.path.length / checkpointCount));
+        
+        checkpoints.push({
+          x: track.path[index].x,
+          y: track.path[index].y,
+          reached: false,
+          isStart: i === 0
+        });
+      }
+      
+      return checkpoints;
+    }
+    
+    // Initialize the game
+    function init() {
+      track.path = generateTrack();
+      
+      // Position car at the bottom of the track
+      car.x = canvas.width / 2;
+      car.y = canvas.height / 2 + canvas.height * 0.25;
+      car.angle = -Math.PI / 2; // Pointing upward
+      
+      // Generate checkpoints for lap counting
+      game.checkpoints = generateCheckpoints();
+      
+      // Set up event listeners
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('keyup', handleKeyUp);
+      
+      // Start the game loop
+      requestAnimationFrame(gameLoop);
+    }
+    
+    // Key event handlers
+    function handleKeyDown(e) {
+      if (keys.hasOwnProperty(e.key)) {
+        keys[e.key] = true;
+        e.preventDefault();
+      }
+    }
+    
+    function handleKeyUp(e) {
+      if (keys.hasOwnProperty(e.key)) {
+        keys[e.key] = false;
+        e.preventDefault();
+      }
+    }
+    
+    // Check if the car is on the track
+    function isOnTrack(x, y) {
+      let onTrack = false;
+      
+      for (let i = 0; i < track.path.length; i++) {
+        const nextI = (i + 1) % track.path.length;
+        const p1 = track.path[i];
+        const p2 = track.path[nextI];
+        
+        // Calculate distance from point to line segment
+        const d = distToSegment({ x, y }, p1, p2);
+        
+        if (d < track.width / 2) {
+          onTrack = true;
+          break;
+        }
+      }
+      
+      return onTrack;
+    }
+    
+    // Calculate distance from point to line segment
+    function distToSegment(p, v, w) {
+      const l2 = dist2(v, w);
+      
+      if (l2 === 0) return dist(p, v);
+      
+      let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+      t = Math.max(0, Math.min(1, t));
+      
+      return dist(p, {
+        x: v.x + t * (w.x - v.x),
+        y: v.y + t * (w.y - v.y)
+      });
+    }
+    
+    // Calculate squared distance between two points
+    function dist2(v, w) {
+      return Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2);
+    }
+    
+    // Calculate distance between two points
+    function dist(v, w) {
+      return Math.sqrt(dist2(v, w));
+    }
+    
+    // Check for checkpoint crossing
+    function checkCheckpoints() {
+      const currentCheckpoint = game.checkpoints[game.currentCheckpoint];
+      const d = dist({ x: car.x, y: car.y }, currentCheckpoint);
+      
+      if (d < 40) {
+        currentCheckpoint.reached = true;
+        
+        // If we hit the start checkpoint and we've gone through all checkpoints in order
+        if (currentCheckpoint.isStart && game.lapStarted) {
+          game.laps++;
+          if (!game.touchedGrass) {
+            game.cleanLaps++;
+            document.getElementById('status').textContent = "CLEAN LAP!";
+            document.getElementById('status').style.color = "#4CAF50";
+            setTimeout(() => { 
+              document.getElementById('status').textContent = "";
+            }, 2000);
+          } else {
+            document.getElementById('status').textContent = "";
+          }
+          
+          // Update UI
+          document.getElementById('lapCounter').textContent = `Laps: ${game.laps}`;
+          document.getElementById('cleanLapCounter').textContent = `Clean Laps: ${game.cleanLaps}`;
+          
+          // Reset for new lap
+          game.touchedGrass = false;
+          game.lapStarted = false;
+        }
+        
+        if (currentCheckpoint.isStart) {
+          game.lapStarted = true;
+        }
+        
+        game.currentCheckpoint = (game.currentCheckpoint + 1) % game.checkpoints.length;
+      }
+    }
+    
+    // Update game state
+    function update(deltaTime) {
+      // Handle car controls
+      if (keys.ArrowUp) {
+        car.speed += car.acceleration;
+      } else if (keys.ArrowDown) {
+        car.speed -= car.acceleration * 0.5;
+      }
+      
+      if (keys.ArrowLeft) {
+        car.angle -= car.rotationSpeed * (Math.abs(car.speed) / car.maxSpeed);
+      }
+      if (keys.ArrowRight) {
+        car.angle += car.rotationSpeed * (Math.abs(car.speed) / car.maxSpeed);
+      }
+      
+      // Apply fan force
+      if (fan.active) {
+        car.x += fan.force;
+        fan.bladeAngle += fan.bladeSpeed;
+      }
+      
+      // Check if car is on track
+      car.onGrass = !isOnTrack(car.x, car.y);
+      
+      // Apply appropriate physics
+      if (!car.onGrass) {
+        car.speed *= car.friction;
+      } else {
+        // Much more severe slowing on grass
+        car.speed *= car.grassFriction;
+        
+        // Hard limit on grass max speed
+        if (Math.abs(car.speed) > car.grassMaxSpeed) {
+          car.speed = Math.sign(car.speed) * car.grassMaxSpeed;
+        }
+        
+        // Mark lap as not clean if touched grass during a lap
+        if (game.lapStarted && !game.touchedGrass) {
+          game.touchedGrass = true;
+          document.getElementById('status').textContent = "Touched grass! Clean lap reset.";
+          document.getElementById('status').style.color = "#F44336";
+          setTimeout(() => { 
+            document.getElementById('status').textContent = "";
+          }, 2000);
+        }
+      }
+      
+      // Clamp speed
+      const maxCurrentSpeed = car.onGrass ? car.grassMaxSpeed : car.maxSpeed;
+      car.speed = Math.max(-maxCurrentSpeed / 2, Math.min(maxCurrentSpeed, car.speed));
+      
+      // Update car position
+      const dx = Math.sin(car.angle) * car.speed;
+      const dy = -Math.cos(car.angle) * car.speed;
+      
+      car.x += dx;
+      car.y += dy;
+      
+      // Keep car on canvas
+      car.x = Math.max(0, Math.min(canvas.width, car.x));
+      car.y = Math.max(0, Math.min(canvas.height, car.y));
+      
+      // Check checkpoints
+      checkCheckpoints();
+      
+      // Update speedometer
+      document.getElementById('speedometer').textContent = `Speed: ${Math.abs(car.speed).toFixed(1)}`;
+    }
+    
+    // Render game elements
+    function render() {
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw grass (background)
+      ctx.fillStyle = '#7cba65';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw track
+      drawTrack();
+      
+      // Draw fan
+      drawFan();
+      
+      // Draw car
+      drawCar();
+    }
+    
+    function drawTrack() {
+      // Draw main track
+      ctx.lineWidth = track.width;
+      ctx.strokeStyle = track.color;
+      ctx.beginPath();
+      ctx.moveTo(track.path[0].x, track.path[0].y);
+      
+      for (let i = 1; i < track.path.length; i++) {
+        ctx.lineTo(track.path[i].x, track.path[i].y);
+      }
+      
+      ctx.closePath();
+      ctx.stroke();
+      
+      // Draw track borders
+      ctx.lineWidth = track.borderWidth;
+      ctx.strokeStyle = track.borderColor;
+      
+      // Draw outer border
+      ctx.beginPath();
+      for (let i = 0; i < track.path.length; i++) {
+        const nextI = (i + 1) % track.path.length;
+        const angle = Math.atan2(
+          track.path[nextI].y - track.path[i].y,
+          track.path[nextI].x - track.path[i].x
+        ) + Math.PI / 2;
+        
+        const outerX = track.path[i].x + Math.cos(angle) * (track.width / 2 - track.borderWidth / 2);
+        const outerY = track.path[i].y + Math.sin(angle) * (track.width / 2 - track.borderWidth / 2);
+        
+        if (i === 0) {
+          ctx.moveTo(outerX, outerY);
+        } else {
+          ctx.lineTo(outerX, outerY);
+        }
+      }
+      ctx.closePath();
+      ctx.stroke();
+      
+      // Draw inner border
+      ctx.beginPath();
+      for (let i = 0; i < track.path.length; i++) {
+        const nextI = (i + 1) % track.path.length;
+        const angle = Math.atan2(
+          track.path[nextI].y - track.path[i].y,
+          track.path[nextI].x - track.path[i].x
+        ) + Math.PI / 2;
+        
+        const innerX = track.path[i].x - Math.cos(angle) * (track.width / 2 - track.borderWidth / 2);
+        const innerY = track.path[i].y - Math.sin(angle) * (track.width / 2 - track.borderWidth / 2);
+        
+        if (i === 0) {
+          ctx.moveTo(innerX, innerY);
+        } else {
+          ctx.lineTo(innerX, innerY);
+        }
+      }
+      ctx.closePath();
+      ctx.stroke();
+      
+      // Draw start/finish line
+      const startPos = track.path[0];
+      const nextPos = track.path[1];
+      const angle = Math.atan2(
+        nextPos.y - startPos.y,
+        nextPos.x - startPos.x
+      ) + Math.PI / 2;
+      
+      ctx.save();
+      ctx.translate(startPos.x, startPos.y);
+      ctx.rotate(angle);
+      
+      // Checkered flag pattern
+      const checkSize = 10;
+      const checks = Math.floor(track.width / checkSize);
+      
+      ctx.fillStyle = '#000';
+      for (let i = 0; i < checks; i++) {
+        for (let j = 0; j < 2; j++) {
+          if ((i + j) % 2 === 0) {
+            ctx.fillRect(
+              -track.width/2 + i * checkSize,
+              -checkSize/2 + j * checkSize,
+              checkSize,
+              checkSize
+            );
+          }
+        }
+      }
+      
+      ctx.restore();
+    }
+    
+    function drawFan() {
+      ctx.save();
+      ctx.translate(fan.x, fan.y);
+      
+      // Fan base
+      ctx.fillStyle = '#222';
+      ctx.fillRect(-fan.width/2, -fan.height/2, fan.width, fan.height);
+      
+      // Fan blades
+      ctx.save();
+      ctx.fillStyle = '#888';
+      ctx.rotate(fan.bladeAngle);
+      
+      for (let i = 0; i < 4; i++) {
+        ctx.rotate(Math.PI / 2);
+        ctx.fillRect(0, 0, fan.width/2, fan.width/8);
+      }
+      ctx.restore();
+      
+      // Fan center
+      ctx.fillStyle = '#444';
+      ctx.beginPath();
+      ctx.arc(0, 0, fan.width/6, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Draw air flow
+      ctx.fillStyle = 'rgba(200, 255, 255, 0.2)';
+      ctx.beginPath();
+      ctx.moveTo(fan.width/2, -fan.height*1.5);
+      ctx.lineTo(canvas.width, -fan.height*1.5);
+      ctx.lineTo(canvas.width, fan.height*1.5);
+      ctx.lineTo(fan.width/2, fan.height*1.5);
+      ctx.closePath();
+      ctx.fill();
+      
+      ctx.restore();
+    }
+    
+    function drawCar() {
+      ctx.save();
+      ctx.translate(car.x, car.y);
+      ctx.rotate(car.angle);
+      
+      // Car body
+      ctx.fillStyle = car.color;
+      ctx.fillRect(-car.width/2, -car.height/2, car.width, car.height);
+      
+      // Car details
+      ctx.fillStyle = '#000';
+      ctx.fillRect(-car.width/2 + 2, -car.height/2 + 4, car.width - 4, car.height/3);
+      
+      ctx.restore();
+    }
+    
+    // Game loop
+    function gameLoop(timestamp) {
+      const deltaTime = timestamp - lastTime;
+      lastTime = timestamp;
+      
+      update(deltaTime);
+      render();
+      
+      if (gameRunning) {
+        requestAnimationFrame(gameLoop);
+      }
+    }
+    
+    // Start the game
+    init();
+  </script>
 </body>
 </html>
